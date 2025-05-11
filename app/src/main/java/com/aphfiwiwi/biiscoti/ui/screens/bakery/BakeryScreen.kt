@@ -1,8 +1,7 @@
 package com.aphfiwiwi.biiscoti.ui.screens.bakery
 
+import android.app.Application
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,39 +11,112 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
+import androidx.lifecycle.*
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.aphfiwiwi.biiscoti.navigation.ROUT_CONTACT
-import com.aphfiwiwi.biiscoti.navigation.ROUT_GROCERY
-import com.aphfiwiwi.biiscoti.navigation.ROUT_HAIR
-import com.aphfiwiwi.biiscoti.navigation.ROUT_HORTICULTURE
-import com.aphfiwiwi.biiscoti.navigation.ROUT_JEWELRY
-import com.aphfiwiwi.biiscoti.navigation.ROUT_SEARCH
+import androidx.room.*
+import kotlinx.coroutines.launch
+
+// -------------------- STYLING & ROUTES --------------------
 
 val newOrange = Color(0xFFFF9800)
 
-const val ROUT_HOME = "home"
-const val ROUT_RESTAURANT = "restaurant"
-const val ROUT_PROFILE = "profile"
-const val ROUT_BARKERY = "bakery"
-const val ROUT_THRIFT = "thrift"
+const val ROUT_CONTACT = "contact"
+const val ROUT_GROCERY = "grocery"
+const val ROUT_HAIR = "hair"
+const val ROUT_JEWELRY = "jewelry"
+const val ROUT_SEARCH = "search"
 
-// ---------------- BAKERY SCREEN ----------------
+// -------------------- ENTITY --------------------
+
+@Entity(tableName = "bakery_items")
+data class BakeryItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val description: String,
+    val price: Double,
+    val contact: String
+)
+
+// -------------------- DAO --------------------
+
+@Dao
+interface BakeryDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItem(item: BakeryItem)
+
+    @Query("SELECT * FROM bakery_items")
+    suspend fun getAllItems(): List<BakeryItem>
+}
+
+// -------------------- DATABASE --------------------
+
+@Database(entities = [BakeryItem::class], version = 1)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun bakeryDao(): BakeryDao
+
+    companion object {
+        @Volatile private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "bakery_db"
+                ).build().also { INSTANCE = it }
+            }
+        }
+    }
+}
+
+// -------------------- VIEWMODEL --------------------
+
+class BakeryViewModel(application: Application) : AndroidViewModel(application) {
+    private val dao = AppDatabase.getDatabase(application).bakeryDao()
+
+    private val _items = MutableLiveData<List<BakeryItem>>()
+    val items: LiveData<List<BakeryItem>> = _items
+
+    init {
+        loadItems()
+    }
+
+    fun addItem(item: BakeryItem) {
+        viewModelScope.launch {
+            dao.insertItem(item)
+            loadItems()
+        }
+    }
+
+    private fun loadItems() {
+        viewModelScope.launch {
+            _items.value = dao.getAllItems()
+        }
+    }
+}
+
+// -------------------- COMPOSABLE SCREEN --------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BakeryScreen(navController: NavController) {
     val context = LocalContext.current
+    val viewModel: BakeryViewModel = viewModel(factory = ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))
+    val items by viewModel.items.observeAsState(emptyList())
+
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var contact by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
-    var selectedIndex by remember { mutableStateOf(3) } // Bakery tab is selected by default
+    var selectedIndex by remember { mutableStateOf(3) }
 
     Scaffold(
         topBar = {
@@ -56,7 +128,7 @@ fun BakeryScreen(navController: NavController) {
         bottomBar = {
             NavigationBar(containerColor = newOrange) {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Star, contentDescription = "Home") },
+                    icon = { Icon(Icons.Default.Star, contentDescription = "Jewelry") },
                     label = { Text("Jewelry") },
                     selected = selectedIndex == 0,
                     onClick = {
@@ -65,7 +137,7 @@ fun BakeryScreen(navController: NavController) {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Face, contentDescription = "Places") },
+                    icon = { Icon(Icons.Default.Face, contentDescription = "Hair") },
                     label = { Text("Hair") },
                     selected = selectedIndex == 1,
                     onClick = {
@@ -74,8 +146,8 @@ fun BakeryScreen(navController: NavController) {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                    label = { Text("contact") },
+                    icon = { Icon(Icons.Default.Person, contentDescription = "Contact") },
+                    label = { Text("Contact") },
                     selected = selectedIndex == 2,
                     onClick = {
                         selectedIndex = 2
@@ -83,7 +155,7 @@ fun BakeryScreen(navController: NavController) {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Favorite, contentDescription = "Bakery") },
+                    icon = { Icon(Icons.Default.Favorite, contentDescription = "Grocery") },
                     label = { Text("Grocery") },
                     selected = selectedIndex == 3,
                     onClick = {
@@ -92,7 +164,7 @@ fun BakeryScreen(navController: NavController) {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Search, contentDescription = "Thrift") },
+                    icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                     label = { Text("Search") },
                     selected = selectedIndex == 4,
                     onClick = {
@@ -106,8 +178,9 @@ fun BakeryScreen(navController: NavController) {
         Column(
             modifier = Modifier
                 .padding(innerPadding)
-                .padding(12.dp)
+                .padding(16.dp)
                 .verticalScroll(rememberScrollState())
+                .fillMaxSize()
         ) {
             OutlinedTextField(
                 value = name,
@@ -125,56 +198,62 @@ fun BakeryScreen(navController: NavController) {
                 value = price,
                 onValueChange = { price = it },
                 label = { Text("Price") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = contact,
                 onValueChange = { contact = it },
                 label = { Text("Contact Number") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                modifier = Modifier.fillMaxWidth()
             )
 
             if (errorMessage.isNotEmpty()) {
-                Text(
-                    text = errorMessage,
-                    color = Color.Red,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                Text(errorMessage, color = Color.Red, fontWeight = FontWeight.Bold, modifier = Modifier.padding(4.dp))
             }
 
             Button(
                 onClick = {
-                    // Validate fields before adding the item (no database insertion anymore)
                     if (name.isEmpty() || description.isEmpty() || price.isEmpty() || contact.isEmpty()) {
-                        errorMessage = "All fields must be filled"
+                        errorMessage = "All fields are required."
                     } else {
-                        val priceDouble = price.toDoubleOrNull()
-                        if (priceDouble == null) {
-                            errorMessage = "Price must be a valid number"
-                        } else {
-                            // Item creation logic, but no database storage here
+                        price.toDoubleOrNull()?.let {
+                            viewModel.addItem(BakeryItem(name = name, description = description, price = it, contact = contact))
                             name = ""
                             description = ""
                             price = ""
                             contact = ""
                             errorMessage = ""
+                        } ?: run {
+                            errorMessage = "Invalid price format"
                         }
                     }
                 },
+                colors = ButtonDefaults.buttonColors(containerColor = newOrange),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = newOrange)
+                    .padding(vertical = 12.dp)
             ) {
                 Text("Add Bakery Item")
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Text("Bakery Items", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp))
 
-            // No longer displaying bakery items from database
+            items.forEach {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Name: ${it.name}", fontWeight = FontWeight.Bold)
+                        Text("Description: ${it.description}")
+                        Text("Price: ${it.price}")
+                        Text("Contact: ${it.contact}")
+                    }
+                }
+            }
         }
     }
 }

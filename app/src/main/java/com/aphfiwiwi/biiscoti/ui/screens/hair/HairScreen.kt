@@ -15,13 +15,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.room.*
 import kotlinx.coroutines.launch
+
+// ==================== Room Setup ====================
 
 @Entity(tableName = "hair_services")
 data class HairService(
@@ -45,8 +45,7 @@ abstract class HairDatabase : RoomDatabase() {
     abstract fun hairServiceDao(): HairServiceDao
 
     companion object {
-        @Volatile
-        private var INSTANCE: HairDatabase? = null
+        @Volatile private var INSTANCE: HairDatabase? = null
 
         fun getDatabase(context: Context): HairDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -62,12 +61,18 @@ abstract class HairDatabase : RoomDatabase() {
     }
 }
 
-class HairViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = HairDatabase.getDatabase(application)
-    private val dao = db.hairServiceDao()
+// ==================== ViewModel ====================
 
-    var services by mutableStateOf(listOf<HairService>())
+class HairViewModel(application: Application) : AndroidViewModel(application) {
+    private val dao = HairDatabase.getDatabase(application).hairServiceDao()
+    var services by mutableStateOf(emptyList<HairService>())
         private set
+
+    init {
+        viewModelScope.launch {
+            loadServices()
+        }
+    }
 
     suspend fun addService(service: HairService) {
         dao.insert(service)
@@ -79,8 +84,10 @@ class HairViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
+// ==================== Composable UI ====================
+
 @Composable
-fun HairScreen(navController: NavHostController) {
+fun HairScreen(navController: NavHostController? = null) {
     val context = LocalContext.current
     val viewModel: HairViewModel = viewModel(
         factory = object : ViewModelProvider.Factory {
@@ -94,95 +101,89 @@ fun HairScreen(navController: NavHostController) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        viewModel.loadServices()
-    }
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFF1A1A1A))
             .padding(16.dp)
-            .background(Color(0xFF1A1A1A)) // Black background
     ) {
         Text(
-            text = "Add Hair Service",
+            "Add Hair Service",
             color = Color.White,
             fontWeight = FontWeight.Bold,
-            fontSize = 20.sp,
-            modifier = Modifier.padding(bottom = 16.dp)
+            fontSize = 22.sp,
+            modifier = Modifier.padding(bottom = 12.dp)
         )
 
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Service Name", color = Color(0xFFFFA500)) }, // Orange color for label
+            label = { Text("Service Name") },
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = price,
             onValueChange = { price = it },
-            label = { Text("Price", color = Color(0xFFFFA500)) }, // Orange color for label
+            label = { Text("Price") },
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
-            label = { Text("Description", color = Color(0xFFFFA500)) }, // Orange color for label
+            label = { Text("Description") },
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        val coroutineScope = rememberCoroutineScope()
+        Spacer(modifier = Modifier.height(12.dp))
 
         Button(
             onClick = {
                 if (name.isNotBlank() && price.toDoubleOrNull() != null && description.isNotBlank()) {
-                    val newService = HairService(
-                        name = name,
-                        price = price.toDouble(),
-                        description = description
-                    )
+                    val service = HairService(name = name, price = price.toDouble(), description = description)
+                    coroutineScope.launch {
+                        viewModel.addService(service)
+                    }
                     name = ""
                     price = ""
                     description = ""
-                    coroutineScope.launch {
-                        viewModel.addService(newService)
-                    }
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFFFFA500)), // Orange button background
-            contentPadding = PaddingValues(vertical = 14.dp)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA500)),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Add Hair Service", color = Color.White)
+            Text("Add Hair Service", color = Color.Black, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "Available Services",
+            "Available Services",
             fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            color = Color.White
+            fontSize = 20.sp,
+            color = Color.White,
+            modifier = Modifier.padding(vertical = 8.dp)
         )
 
-        LazyColumn {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(viewModel.services) { service ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        .background(Color(0xFF333333)) // Dark card background using Modifier
+                        .padding(vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF333333))
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(service.name, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("Ksh ${service.price}", color = Color(0xFFFFA500)) // Orange price text
-                        Text(service.description, color = Color.White)
+                        Text(service.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+                        Text("Ksh ${service.price}", color = Color(0xFFFFA500), fontSize = 14.sp)
+                        Text(service.description, color = Color.White, fontSize = 13.sp)
                     }
                 }
             }
@@ -190,28 +191,8 @@ fun HairScreen(navController: NavHostController) {
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, backgroundColor = 0xFF1A1A1A)
 @Composable
-fun HairScreenPreview() {
-    MaterialTheme {
-        Column(modifier = Modifier.padding(16.dp)) {
-            OutlinedTextField(value = "Braiding", onValueChange = {}, label = { Text("Service Name", color = Color(0xFFFFA500)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = "1000", onValueChange = {}, label = { Text("Price", color = Color(0xFFFFA500)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = "Single lines, 3 hours", onValueChange = {}, label = { Text("Description", color = Color(0xFFFFA500)) }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(onClick = {}, modifier = Modifier.fillMaxWidth().background(Color(0xFFFFA500))) {
-                Text("Add Hair Service", color = Color.White)
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            Text("Available Services", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
-
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).background(Color(0xFF333333))) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Sample Service", fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Ksh 1500", color = Color(0xFFFFA500))
-                    Text("Sample description of hair service", color = Color.White)
-                }
-            }
-        }
-    }
+fun PreviewHairScreen() {
+    HairScreen()
 }
